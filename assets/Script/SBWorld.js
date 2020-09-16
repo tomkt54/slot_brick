@@ -1,61 +1,73 @@
 export class SBSymbol
 {
     id = 0;
-    hitGround = true;
+    active = true;
     pos = 0;
     v = 0;
-    constructor(world, reel, rows, sw, sh)
+    elastic = 0.23;
+    constructor(world, reel, sw, sh)
     {
         this.world = world;
         this.reel = reel;
-        this.w = sw;
-        this.h = sh;
+        this.sw = sw;
+        this.sh = sh;
     }
 
-    update(dt)
+    updatePos(dt)
     {
         this.v += this.world.ga*dt;
-        this.pos += v*dt;
-        let elastic = 0.9;
-        if (this.hitGround)
-        {
-            if (this.pos + this.sh < this.world.groundPos)
-            {
-                this.v = -this.v*elastic;
-                this.pos = this.world.groundPos;
-            }
-        }
+        this.pos += this.v*dt;
+    }
 
-        for (let i = 0; i < this.reel.symbols.length; i++)
+    updateCollision()
+    {
+        let elastic = this.elastic;
+        let hit = false;
+        if (this.active)
         {
-            let sym = this.reel.symbols[i];
-            if (sym == this) continue;
-            if (this.pos > sym.pos && this.pos - sym.pos < this.sh)
+            if (this.pos < this.world.groundPos)
             {
-                this.pos = sym.pos + this.sh;
+                this.pos = this.world.groundPos;
+                hit = true;
                 if (this.v < 0) this.v = -this.v*elastic;
             }
-            
-            if (this.pos < sym.pos && sym.pos - this.pos < sym.sh)
+
+            if (!hit) for (let i = 0; i < this.reel.symbols.length; i++)
             {
-                this.pos = sym.pos - sym.sh;
-                if (this.v > 0) this.v = -this.v*elastic;
+                let sym = this.reel.symbols[i];
+                if (sym == this) continue;
+                if (this.pos > sym.pos && this.pos - sym.pos < sym.sh)
+                {
+                    this.pos = sym.pos + sym.sh;
+                    if (this.v < 0) this.v = -this.v*elastic;
+                    break;
+                }
+                
+                if (!hit && this.pos < sym.pos && sym.pos - this.pos < sym.sh)
+                {
+                    this.pos = sym.pos - this.sh;
+                    if (this.v > 0) this.v = -this.v*elastic;
+                    break;
+                }
             }
         }
-
-        if (this.pos < -this.world.groundPos) this.reel.destroySymbol(this);
-
+        
+        if (this.pos < this.world.groundPos - this.sh*2) this.reel.destroySymbol(this);
     }
+
 }
 
 export class SBReel
 {
+    index;
     symbols = [];
 
     constructor(world, rows, sw, sh)
     { 
         this.world = world;
         this.rows = rows;
+        this.sw = sw;
+        this.sh = sh;
     }
 
     clearSymbols()
@@ -79,40 +91,65 @@ export class SBReel
         }
     }
 
-    startFall(anim = true)
+    isEmpty()
     {
         for (let i = 0; i < this.symbols.length; i++)
         {
-            this.symbols[i].hitGround = false;
+            if (this.symbols[i].active) return false;
         }
-        let starPos = anim?this.rows*this.world.sh : this.world.groundPos + this.world.sh;
-        let dis = anim?0:0;
+        return true;
+    }
+
+    reset()
+    {
+        for (let i = 0; i < this.symbols.length; i++)
+        {
+            this.symbols[i].active = false;
+        }
+    }
+
+    startFall(anim = true)
+    {
+        let ids = [];
+        let startPos = anim?this.rows*this.sh : this.world.groundPos;
+        let dis = this.sh*0.05;
         for (let i = 0; i < this.rows; i++)
         {
-            let sym = new SBSymbol(world, this, this.sw, this.sh);
+            let sym = new SBSymbol(this.world, this, this.sw, this.sh);
+            if (i == 1) sym.elastic = 0.45;
             this.symbols.push(sym);
-            this.symbols.pos = startPos + (this.sh + dis)*i;
+            sym.pos = startPos + (this.sh + dis)*(i + 1);
+            sym.id = this.world.getSymId();
+            ids.unshift(sym.id);
         }
+
+        return ids;
     }
 
     update(dt)
     {
         for (let i = 0; i < this.symbols.length; i++)
         {
-            this.symbols[i].update(dt);
+            this.symbols[i].updatePos(dt);
+        }
+
+        for (let i = 0; i < this.symbols.length; i++)
+        {
+            this.symbols[i].updateCollision(dt);
         }
     }
 }
 
 export class SBWorld
 {
-    ga = -9.81*60*5; //gravity
+    symId = 0;
+    ga = -9.81*60*3; //gravity
     groundPos = 0;
     reels = [];
 
     onSymbolDestroy = null;
-    sw = w;
-    sh = h;
+    sw = 0;
+    sh = 0;
     constructor(cols, rows, sw, sh, groundPos = 0)
     {
         this.sw = sw;
@@ -121,8 +158,16 @@ export class SBWorld
         for (let i = 0; i < cols; i++)
         {
             let reel = new SBReel(this, rows, sw, sh);
+            reel.index = i;
             this.reels.push(reel);
         }
+    }
+
+    getSymId()
+    {
+        this.symId++;
+        if (this.symId > 0x7FFFFFFF - 1) this.symId = 0;
+        return this.symId;
     }
 
     update(dt)
