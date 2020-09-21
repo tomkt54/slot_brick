@@ -23,6 +23,7 @@ export class SBSymbol
     {
         let elastic = this.elastic;
         let hit = false;
+        
         if (this.active)
         {
             if (this.pos < this.world.groundPos)
